@@ -78,12 +78,18 @@ const Engine = {
     // Chunked for large datasets
     const numChunks = Math.ceil(total / CONFIG.CHUNK_SIZE);
     const results = [];
+    const CONCURRENCY = 5;
 
-    for (let i = 0; i < numChunks; i++) {
-      const chunk = places.slice(i * CONFIG.CHUNK_SIZE, (i + 1) * CONFIG.CHUNK_SIZE);
-      if (onProgress) onProgress(i + 1, numChunks);
-      const result = await this.analyzeChunk(chunk, i + 1, numChunks);
-      results.push(result);
+    for (let i = 0; i < numChunks; i += CONCURRENCY) {
+      const promises = [];
+      for (let j = 0; j < CONCURRENCY && i + j < numChunks; j++) {
+        const idx = i + j;
+        const chunk = places.slice(idx * CONFIG.CHUNK_SIZE, (idx + 1) * CONFIG.CHUNK_SIZE);
+        if (onProgress) onProgress(idx + 1, numChunks);
+        promises.push(this.analyzeChunk(chunk, idx + 1, numChunks));
+      }
+      const chunkResults = await Promise.all(promises);
+      results.push(...chunkResults);
     }
 
     if (onProgress) onProgress("merging", numChunks);
@@ -338,6 +344,7 @@ const Engine = {
     const numBatches = Math.ceil(filtered.length / batchSize);
     const allScores = [];
     this.state._scoredCount = 0;
+    const CONCURRENCY = 5; // parallel LLM calls
 
     const profileSummary = JSON.stringify({
       summary: profile?.summary || "",
@@ -353,33 +360,22 @@ const Engine = {
       key_patterns: profile?.key_patterns || [],
     }, null, 2);
 
-    for (let i = 0; i < numBatches; i++) {
-      const batch = filtered.slice(i * batchSize, (i + 1) * batchSize);
-      if (onProgress) onProgress(i + 1, numBatches);
-
-      try {
-        const placesText = batch.map(p => this.formatPlace(p)).join("\n");
-
-        const system = `You are a taste-matching engine. Score each place 0-10 on how well it matches the person's taste profile. Consider cuisine, vibe, design, outdoor interests, and whether this person would love this place. Be discerning.`;
-
-        const user = `## Taste Profile\n${profileSummary}\n\n## Candidate Places\n${placesText}\n\nScore each place 0-10. Return JSON array:\n[{"name":"","score":0,"reason":"","tags":[]}]\n\nCRITICAL: Return ONLY the JSON array. No explanations, no reasoning, no markdown, no code fences. Start with [ and end with ].`;
-
-        const response = await this.llmCall(
-          [{ role: "system", content: system }, { role: "user", content: user }],
-          0.2, 8000
-        );
-
-        const scores = this.extractJSON(response);
+    // Process batches in parallel chunks
+    for (let i = 0; i < numBatches; i += CONCURRENCY) {
+      const promises = [];
+      for (let j = 0; j < CONCURRENCY && i + j < numBatches; j++) {
+        const batchIdx = i + j;
+        const batch = filtered.slice(batchIdx * batchSize, (batchIdx + 1) * batchSize);
+        if (onProgress) onProgress(batchIdx + 1, numBatches);
+        promises.push(this.rankBatch(batch, profileSummary, batchIdx, numBatches));
+      }
+      const results = await Promise.all(promises);
+      for (const scores of results) {
         if (Array.isArray(scores)) {
           allScores.push(...scores);
           this.state._scoredCount += scores.length;
         }
-        else console.warn(`Batch ${i+1}: No valid JSON scores parsed`);
-      } catch (batchErr) {
-        console.warn(`Batch ${i+1} failed: ${batchErr.message}`);
       }
-      // Small delay between batches to avoid rate limits
-      if (i < numBatches - 1) await new Promise(r => setTimeout(r, 500));
     }
 
     // Merge scores with place data
@@ -396,6 +392,25 @@ const Engine = {
       .sort((a, b) => b.score - a.score);
 
     return ranked;
+  },
+
+  async rankBatch(batch, profileSummary, batchIdx, totalBatches) {
+    try {
+      const placesText = batch.map(p => this.formatPlace(p)).join("\n");
+      const system = `You are a taste-matching engine. Score each place 0-10 on how well it matches the person's taste profile. Consider cuisine, vibe, design, outdoor interests, and whether this person would love this place. Be discerning.`;
+      const user = `## Taste Profile\n${profileSummary}\n\n## Candidate Places\n${placesText}\n\nScore each place 0-10. Return JSON array:\n[{"name":"","score":0,"reason":"","tags":[]}]\n\nCRITICAL: Return ONLY the JSON array. No explanations, no reasoning, no markdown, no code fences. Start with [ and end with ].`;
+      const response = await this.llmCall(
+        [{ role: "system", content: system }, { role: "user", content: user }],
+        0.2, 8000
+      );
+      const scores = this.extractJSON(response);
+      if (Array.isArray(scores)) return scores;
+      console.warn(`Batch ${batchIdx+1}: No valid JSON scores parsed`);
+      return [];
+    } catch (err) {
+      console.warn(`Batch ${batchIdx+1} failed: ${err.message}`);
+      return [];
+    }
   },
 
   formatPlace(p) {
