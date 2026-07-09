@@ -13,7 +13,10 @@ const App = {
     this.cacheElements();
     this.bindEvents();
     this.loadFromStorage();
-    this.showWelcome();
+    this.loadChatHistory();
+    if (document.querySelectorAll('.message').length === 0) {
+      this.showWelcome();
+    }
   },
 
   cacheElements() {
@@ -83,6 +86,9 @@ const App = {
     document.getElementById("download-kml")?.addEventListener("click", () => this.downloadKML());
     document.getElementById("download-csv")?.addEventListener("click", () => this.downloadCSV());
     document.getElementById("clear-selection")?.addEventListener("click", () => this.clearSelection());
+
+    // Clear chat
+    document.getElementById("clear-chat")?.addEventListener("click", () => this.clearChatHistory());
   },
 
   loadFromStorage() {
@@ -625,7 +631,53 @@ const App = {
     msg.appendChild(avatar);
     msg.appendChild(contentEl);
     this.els.messages.appendChild(msg);
+    this.saveChatHistory(role, content);
     this.scrollToBottom();
+  },
+
+  saveChatHistory(role, content) {
+    try {
+      const history = JSON.parse(localStorage.getItem("tf_chat_history") || "[]");
+      history.push({ role, content, ts: Date.now() });
+      // Keep last 100 messages to avoid localStorage overflow
+      if (history.length > 100) history.splice(0, history.length - 100);
+      localStorage.setItem("tf_chat_history", JSON.stringify(history));
+    } catch (e) { /* localStorage full or unavailable */ }
+  },
+
+  loadChatHistory() {
+    try {
+      const history = JSON.parse(localStorage.getItem("tf_chat_history") || "[]");
+      for (const msg of history) {
+        const el = document.createElement("div");
+        el.className = `message ${msg.role}`;
+
+        const avatar = document.createElement("div");
+        avatar.className = "message-avatar";
+        avatar.textContent = msg.role === "user" ? "👤" : "🤖";
+
+        const contentEl = document.createElement("div");
+        contentEl.className = "message-content";
+
+        let html = msg.content
+          .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
+          .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+          .replace(/\*([^*]+)\*/g, "<em>$1</em>")
+          .replace(/\n/g, "<br>");
+        contentEl.innerHTML = html;
+
+        el.appendChild(avatar);
+        el.appendChild(contentEl);
+        this.els.messages.appendChild(el);
+      }
+      this.scrollToBottom();
+    } catch (e) { /* ignore */ }
+  },
+
+  clearChatHistory() {
+    localStorage.removeItem("tf_chat_history");
+    this.els.messages.innerHTML = "";
+    this.showWelcome();
   },
 
   setTyping(show) {
@@ -648,6 +700,7 @@ const App = {
     }
     bar.innerHTML = `<div class="step active">⏳ ${text}</div>`;
     this.scrollToBottom();
+    // Don't save progress bars to chat history
   },
 
   clearProgress() {
