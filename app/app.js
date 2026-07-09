@@ -638,11 +638,25 @@ const App = {
   saveChatHistory(role, content) {
     try {
       const history = JSON.parse(localStorage.getItem("tf_chat_history") || "[]");
-      history.push({ role, content, ts: Date.now() });
-      // Keep last 100 messages to avoid localStorage overflow
+      history.push({ role, content: content.substring(0, 50000), ts: Date.now() });
+      // Keep last 100 messages, and trim if total size > 4MB
       if (history.length > 100) history.splice(0, history.length - 100);
-      localStorage.setItem("tf_chat_history", JSON.stringify(history));
-    } catch (e) { /* localStorage full or unavailable */ }
+      let serialized = JSON.stringify(history);
+      // If over 4MB, drop oldest messages until under limit
+      while (serialized.length > 4000000 && history.length > 2) {
+        history.splice(0, 1);
+        serialized = JSON.stringify(history);
+      }
+      localStorage.setItem("tf_chat_history", serialized);
+    } catch (e) {
+      // localStorage full — trim history aggressively and retry once
+      try {
+        const history = JSON.parse(localStorage.getItem("tf_chat_history") || "[]");
+        history.push({ role, content: content.substring(0, 5000), ts: Date.now() });
+        while (history.length > 10) history.splice(0, 1);
+        localStorage.setItem("tf_chat_history", JSON.stringify(history));
+      } catch (e2) { /* give up silently */ }
+    }
   },
 
   loadChatHistory() {
