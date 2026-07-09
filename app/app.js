@@ -200,6 +200,12 @@ const App = {
   showWelcome() {
     if (Engine.state.places.length === 0) {
       this.addMessage("bot", `Welcome to **Taste Finder**! 🍽️\n\nI learn your taste from your Google Maps saved places and recommend similar spots anywhere.\n\n**To get started:**\n1. Enter your Google Places + OpenRouter API keys (sidebar)\n2. Upload your Google Maps export from [Google Takeout](https://takeout.google.com)\n3. Ask me: *"Find fresh fish in Catania"*\n\nYour keys stay in your browser. No server, no tracking.`);
+    } else if (Engine.state.profile) {
+      const summary = Engine.state.profile.summary || "";
+      const keywords = (Engine.state.profile.search_keywords || []).slice(0, 5).join(", ");
+      this.addMessage("bot", `✅ **Ready!** Your taste profile is loaded.\n\n${summary}\n\nTry: *"Find fresh fish in Catania"* or *"Craft beer bars in Berlin"*`);
+    } else {
+      this.addMessage("bot", `Welcome back! You have **${Engine.state.places.length} places** loaded. Enter your API keys in the sidebar and I'll build your taste profile.`);
     }
   },
 
