@@ -33,7 +33,9 @@ const Engine = {
     }
 
     const data = await res.json();
-    return data.choices?.[0]?.message?.content || "";
+    const msg = data.choices?.[0]?.message || {};
+    // Some models (e.g. GLM-4.5) put the answer in reasoning instead of content
+    return msg.content || msg.reasoning || "";
   },
 
   // ─── JSON extraction from LLM response ─────────────────
@@ -100,7 +102,7 @@ const Engine = {
 
     const system = `You are a taste analyst. Analyze places and identify patterns in cuisine, vibe, design, drinks, outdoor activities, nature, cultural interests, and travel style. Places may include restaurants, beaches, trails, museums, landmarks, and more.`;
 
-    const user = `Here are ${chunk.length} places (batch ${idx}/${total}):\n\n${placesText}\n\nAnalyze and return JSON:\n{"cuisine_patterns":[],"vibe_patterns":[],"drink_patterns":[],"outdoor_nature_patterns":[],"cultural_patterns":[],"activity_patterns":[],"travel_style":[],"keywords":["search keywords for finding similar places — include food AND non-food"],"notable_categories":[]}\n\nReturn ONLY valid JSON.`;
+    const user = `Here are ${chunk.length} places (batch ${idx}/${total}):\n\n${placesText}\n\nAnalyze and return JSON:\n{"cuisine_patterns":[],"vibe_patterns":[],"drink_patterns":[],"outdoor_nature_patterns":[],"cultural_patterns":[],"activity_patterns":[],"travel_style":[],"keywords":["search keywords for finding similar places — include food AND non-food"],"notable_categories":[]}\n\nCRITICAL: Return ONLY the JSON object. No explanations, no reasoning, no markdown, no code fences. Start with { and end with }.`;
 
     const response = await this.llmCall(
       [{ role: "system", content: system }, { role: "user", content: user }],
@@ -155,7 +157,7 @@ const Engine = {
 
     const system = `You are a master taste analyst. Synthesize aggregated analysis from multiple batches into a single unified taste profile. The search_keywords are the most important output — they'll be used for Google Places search.`;
 
-    const user = `## Aggregated Analysis (${chunks.length} batches, ${totalPlaces} places)\n\n${JSON.stringify(aggregated, null, 2)}\n\nSynthesize into a final taste profile. Return JSON:\n{"summary":"2-3 sentence taste description","cuisine_preferences":[],"vibe_preferences":[],"design_sensibility":"","price_range":"","drink_preferences":[],"outdoor_interests":[],"cultural_interests":[],"travel_style":[],"avoid":[],"key_patterns":[],"search_keywords":["15-25 keywords for Google Places search"]}\n\nReturn ONLY valid JSON.`;
+    const user = `## Aggregated Analysis (${chunks.length} batches, ${totalPlaces} places)\n\n${JSON.stringify(aggregated, null, 2)}\n\nSynthesize into a final taste profile. Return JSON:\n{"summary":"2-3 sentence taste description","cuisine_preferences":[],"vibe_preferences":[],"design_sensibility":"","price_range":"","drink_preferences":[],"outdoor_interests":[],"cultural_interests":[],"travel_style":[],"avoid":[],"key_patterns":[],"search_keywords":["15-25 keywords for Google Places search"]}\n\nCRITICAL: Return ONLY the JSON object. No explanations, no reasoning, no markdown, no code fences. Start with { and end with }.`;
 
     const response = await this.llmCall(
       [{ role: "system", content: system }, { role: "user", content: user }],
@@ -360,7 +362,7 @@ const Engine = {
 
         const system = `You are a taste-matching engine. Score each place 0-10 on how well it matches the person's taste profile. Consider cuisine, vibe, design, outdoor interests, and whether this person would love this place. Be discerning.`;
 
-        const user = `## Taste Profile\n${profileSummary}\n\n## Candidate Places\n${placesText}\n\nScore each place 0-10. Return JSON array:\n[{"name":"","score":0,"reason":"","tags":[]}]\n\nReturn ONLY valid JSON array.`;
+        const user = `## Taste Profile\n${profileSummary}\n\n## Candidate Places\n${placesText}\n\nScore each place 0-10. Return JSON array:\n[{"name":"","score":0,"reason":"","tags":[]}]\n\nCRITICAL: Return ONLY the JSON array. No explanations, no reasoning, no markdown, no code fences. Start with [ and end with ].`;
 
         const response = await this.llmCall(
           [{ role: "system", content: system }, { role: "user", content: user }],
