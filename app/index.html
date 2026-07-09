@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Taste Finder — Discover places you'll love</title>
+  <link rel="stylesheet" href="style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div id="app">
+    <!-- Sidebar -->
+    <aside id="sidebar">
+      <div class="sidebar-header">
+        <h1>🍽️ Taste Finder</h1>
+        <p class="tagline">Your taste. Discovered.</p>
+      </div>
+
+      <div class="setup-section">
+        <h3>⚙️ Setup</h3>
+
+        <div class="input-group">
+          <label>Google Places API Key</label>
+          <input type="password" id="places-key" placeholder="AIza..." autocomplete="off">
+          <a href="https://console.cloud.google.com/google/maps-apis/credentials" target="_blank" class="help-link">Get one →</a>
+        </div>
+
+        <div class="input-group">
+          <label>OpenRouter API Key</label>
+          <input type="password" id="llm-key" placeholder="sk-or-..." autocomplete="off">
+          <a href="https://openrouter.ai/keys" target="_blank" class="help-link">Get one →</a>
+        </div>
+
+        <div class="input-group">
+          <label>LLM Model</label>
+          <select id="llm-model">
+            <option value="z-ai/glm-4.5">GLM-4.5 (default)</option>
+            <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet</option>
+            <option value="openai/gpt-4o-mini">GPT-4o Mini</option>
+            <option value="google/gemini-flash-1.5">Gemini Flash</option>
+            <option value="meta-llama/llama-3.1-70b-instruct">Llama 3.1 70B</option>
+          </select>
+        </div>
+
+        <div class="input-group">
+          <label>Google Maps Export (JSON/KML/CSV)</label>
+          <div id="drop-zone" class="drop-zone">
+            <p>📎 Drop file or click to upload</p>
+            <input type="file" id="file-input" accept=".json,.kml,.csv" hidden>
+          </div>
+          <p id="file-status" class="file-status"></p>
+        </div>
+      </div>
+
+      <div class="profile-section" id="profile-section" style="display:none">
+        <h3>🎯 Your Taste Profile</h3>
+        <div id="profile-display"></div>
+        <button id="rebuild-profile" class="btn-secondary">Rebuild Profile</button>
+      </div>
+
+      <div class="sidebar-footer">
+        <p class="privacy">🔒 Keys stored only in your browser. No server.</p>
+      </div>
+    </aside>
+
+    <!-- Main chat area -->
+    <main id="main">
+      <div id="chat-container">
+        <div id="messages"></div>
+        <div id="typing-indicator" style="display:none">
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        </div>
+      </div>
+
+      <div id="input-bar">
+        <input type="text" id="chat-input" placeholder="Ask: 'Find fresh fish in Catania' or 'Craft beer bars in Berlin'" disabled>
+        <button id="send-btn" disabled>Send</button>
+      </div>
+    </main>
+  </div>
+
+  <script src="config.js"></script>
+  <script src="parser.js"></script>
+  <script src="engine.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
