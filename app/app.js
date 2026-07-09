@@ -254,12 +254,16 @@ const App = {
       this.clearProgress();
       this.addMessage("bot", `Found **${candidates.length} candidates** across ${queries.length} searches. Now ranking ALL of them against your taste profile...`);
 
-      // Rank all candidates
+      // Rank all candidates — pass the user's search term so the LLM
+      // prioritizes places matching what they asked for
+      const searchTerm = text.replace(/(?:in|near|around)\s+[A-Z][a-zA-Z\s,]+/gi, "")
+        .replace(/(?:find|recommend|suggest|show|looking for|i want|places?|similar|like|good|best|restaurants?|food|spots?)\s+/gi, " ")
+        .replace(/\s+/g, " ").trim();
       const numBatches = Math.ceil(Math.min(candidates.length, 9999) / CONFIG.RANK_BATCH_SIZE);
       const ranked = await Engine.rankCandidates(candidates, profile, (idx, total) => {
         const pct = Math.round((idx / total) * 100);
         this.updateProgress(`⏳ Ranking batch ${idx}/${total} (${pct}%) — scored ${Engine.state._scoredCount || 0} places so far...`);
-      });
+      }, searchTerm);
 
       this.clearProgress();
 

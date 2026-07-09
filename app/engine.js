@@ -303,27 +303,37 @@ const Engine = {
     const cityMatch = userMessage.match(/(?:in|near|around)\s+([A-Z][a-zA-Z\s,]+?)(?:\?|$|\.|,)/);
     const city = cityMatch ? cityMatch[1].trim() : "";
 
-    // Extract custom keyword from user message
+    // Extract the user's specific search term (everything except the city + filler words)
     const cleaned = userMessage
-      .replace(/(?:find|recommend|suggest|show|looking for|i want|places?|similar|like|good|best)\s+/gi, "")
       .replace(/(?:in|near|around)\s+[A-Z][a-zA-Z\s,]+/gi, "")
+      .replace(/(?:find|recommend|suggest|show|looking for|i want|places?|similar|like|good|best|restaurants?|food|spots?)\s+/gi, " ")
+      .replace(/\s+/g, " ")
       .trim();
 
     const keywords = profile?.search_keywords || [];
-
-    // If user specified something specific, prioritize it
     let queries = [];
+
     if (cleaned && cleaned.length > 2) {
+      // User asked for something specific — search ONLY for that
+      // Generate variations to catch more relevant results
       if (city) {
         queries.push(`${cleaned} in ${city}`);
+        queries.push(`${cleaned} restaurant in ${city}`);
+        queries.push(`${cleaned} in ${city}`);
+      } else {
+        queries.push(cleaned);
+        queries.push(`${cleaned} restaurant`);
       }
-      // Add profile keywords + city
-      for (const kw of keywords.slice(0, 15)) {
-        if (city) queries.push(`${kw} in ${city}`);
-        else queries.push(kw);
+      // Add 2-3 profile keywords as supplementary (not 15)
+      // These help catch places that match both the search term AND the user's taste
+      for (const kw of keywords.slice(0, 3)) {
+        // Only add if the profile keyword is related to the search term
+        // e.g. if user searched "fresh fish", don't add "craft beer"
+        if (city) queries.push(`${cleaned} ${kw} in ${city}`);
+        else queries.push(`${cleaned} ${kw}`);
       }
     } else {
-      // Use profile keywords + city
+      // No specific search term — use profile keywords + city
       for (const kw of keywords.slice(0, 15)) {
         if (city) queries.push(`${kw} in ${city}`);
         else queries.push(kw);
@@ -335,7 +345,7 @@ const Engine = {
   },
 
   // ─── Rank candidates ────────────────────────────────────
-  async rankCandidates(candidates, profile, onProgress) {
+  async rankCandidates(candidates, profile, onProgress, searchQuery) {
     // Filter + cap
     let filtered = candidates.filter(c => c.name.length >= 3);
     if (filtered.length > CONFIG.MAX_CANDIDATES) filtered = filtered.slice(0, CONFIG.MAX_CANDIDATES);
@@ -367,7 +377,7 @@ const Engine = {
         const batchIdx = i + j;
         const batch = filtered.slice(batchIdx * batchSize, (batchIdx + 1) * batchSize);
         if (onProgress) onProgress(batchIdx + 1, numBatches);
-        promises.push(this.rankBatch(batch, profileSummary, batchIdx, numBatches));
+        promises.push(this.rankBatch(batch, profileSummary, batchIdx, numBatches, searchQuery));
       }
       const results = await Promise.all(promises);
       for (const scores of results) {
@@ -394,11 +404,14 @@ const Engine = {
     return ranked;
   },
 
-  async rankBatch(batch, profileSummary, batchIdx, totalBatches) {
+  async rankBatch(batch, profileSummary, batchIdx, totalBatches, searchQuery) {
     try {
       const placesText = batch.map(p => this.formatPlace(p)).join("\n");
       const system = `You are a taste-matching engine. Score each place 0-10 on how well it matches the person's taste profile. Consider cuisine, vibe, design, outdoor interests, and whether this person would love this place. Be discerning.`;
-      const user = `## Taste Profile\n${profileSummary}\n\n## Candidate Places\n${placesText}\n\nScore each place 0-10. Return JSON array:\n[{"name":"","score":0,"reason":"","tags":[]}]\n\nCRITICAL: Return ONLY the JSON array. No explanations, no reasoning, no markdown, no code fences. Start with [ and end with ].`;
+      const searchContext = searchQuery
+        ? `\n\n## Important: The user searched for "${searchQuery}". Places that match this search intent should score higher. Places that don't match the search at all should score 0-3 regardless of taste match.`
+        : "";
+      const user = `## Taste Profile\n${profileSummary}${searchContext}\n\n## Candidate Places\n${placesText}\n\nScore each place 0-10. Return JSON array:\n[{"name":"","score":0,"reason":"","tags":[]}]\n\nCRITICAL: Return ONLY the JSON array. No explanations, no reasoning, no markdown, no code fences. Start with [ and end with ].`;
       const response = await this.llmCall(
         [{ role: "system", content: system }, { role: "user", content: user }],
         0.2, 8000
