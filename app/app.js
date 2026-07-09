@@ -142,16 +142,19 @@ const App = {
     this.els.profileDisplay.innerHTML = "<p>Analyzing your places...</p>";
 
     const total = Engine.state.places.length;
-    this.addMessage("bot", `🔍 Analyzing ${total} saved places to build your taste profile...`);
+    this.addMessage("bot", `🔍 Analyzing ${total} saved places to build your taste profile. This may take a few minutes for large exports...`);
 
     try {
       const profile = await Engine.buildProfile(Engine.state.places, (idx, total) => {
         if (idx === "merging") {
-          this.els.profileDisplay.innerHTML = "<p>Synthesizing final profile...</p>";
+          this.updateProgress("🧠 Synthesizing final taste profile from all batches...");
         } else {
-          this.els.profileDisplay.innerHTML = `<p>Analyzing batch ${idx}/${total}...</p>`;
+          const pct = Math.round((idx / total) * 100);
+          this.updateProgress(`📊 Analyzing batch ${idx}/${total} (${pct}%) — processing your saved places...`);
         }
       });
+
+      this.clearProgress();
 
       Engine.state.profile = profile;
       localStorage.setItem("tf_profile", JSON.stringify(profile));
@@ -227,21 +230,26 @@ const App = {
     try {
       // Search
       const candidates = await Engine.searchAllQueries(queries, (idx, total, query) => {
-        // Progress updates could go here
+        this.updateProgress(`🔎 Searching query ${idx}/${total}: "${query}" — found ${Engine.state._lastCount || 0} places so far...`);
       });
 
       if (candidates.length === 0) {
+        this.clearProgress();
         this.addMessage("bot", `No places found. Try a different query or city.`);
         return;
       }
 
-      this.addMessage("bot", `Found **${candidates.length} candidates**. Ranking top 50 by taste match...`);
+      this.clearProgress();
+      this.addMessage("bot", `Found **${candidates.length} candidates** across ${queries.length} searches. Now ranking ALL of them against your taste profile...`);
 
+      // Rank all candidates
+      const numBatches = Math.ceil(Math.min(candidates.length, 9999) / CONFIG.RANK_BATCH_SIZE);
       const ranked = await Engine.rankCandidates(candidates, profile, (idx, total) => {
-        if (idx % 2 === 0 || idx === total) {
-          this.addMessage("bot", `Ranking batch ${idx}/${total}...`);
-        }
+        const pct = Math.round((idx / total) * 100);
+        this.updateProgress(`⏳ Ranking batch ${idx}/${total} (${pct}%) — scored ${Engine.state._scoredCount || 0} places so far...`);
       });
+
+      this.clearProgress();
 
       // Display top results
       const top = ranked.filter(r => r.score >= 5).slice(0, 15);
@@ -255,6 +263,7 @@ const App = {
       for (const p of top) {
         html += this.placeCardHTML(p);
       }
+      html += `<p style="color:var(--text-muted);font-size:12px;margin-top:12px">📊 Ranked ${ranked.length} candidates from ${queries.length} searches. Showing top ${top.length} with score ≥ 5/10.</p>`;
 
       this.addMessage("bot", html);
     } catch (err) {
@@ -346,6 +355,23 @@ const App = {
   scrollToBottom() {
     const container = document.getElementById("chat-container");
     container.scrollTop = container.scrollHeight;
+  },
+
+  updateProgress(text) {
+    let bar = document.getElementById("progress-bar");
+    if (!bar) {
+      bar = document.createElement("div");
+      bar.id = "progress-bar";
+      bar.className = "progress-bar";
+      this.els.messages.appendChild(bar);
+    }
+    bar.innerHTML = `<div class="step active">⏳ ${text}</div>`;
+    this.scrollToBottom();
+  },
+
+  clearProgress() {
+    const bar = document.getElementById("progress-bar");
+    if (bar) bar.remove();
   },
 };
 

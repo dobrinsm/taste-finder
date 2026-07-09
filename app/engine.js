@@ -202,6 +202,7 @@ const Engine = {
   async searchAllQueries(queries, onProgress) {
     const allPlaces = [];
     const seen = new Set();
+    this.state._lastCount = 0;
 
     for (let i = 0; i < queries.length; i++) {
       if (onProgress) onProgress(i + 1, queries.length, queries[i]);
@@ -222,6 +223,8 @@ const Engine = {
           seen.add(key);
           allPlaces.push(parsed);
         }
+
+        this.state._lastCount = allPlaces.length;
 
         token = result.nextPageToken;
         if (!token) break;
@@ -332,6 +335,7 @@ const Engine = {
     const batchSize = CONFIG.RANK_BATCH_SIZE;
     const numBatches = Math.ceil(filtered.length / batchSize);
     const allScores = [];
+    this.state._scoredCount = 0;
 
     const profileSummary = JSON.stringify({
       summary: profile?.summary || "",
@@ -364,7 +368,10 @@ const Engine = {
         );
 
         const scores = this.extractJSON(response);
-        if (Array.isArray(scores)) allScores.push(...scores);
+        if (Array.isArray(scores)) {
+          allScores.push(...scores);
+          this.state._scoredCount += scores.length;
+        }
         else console.warn(`Batch ${i+1}: No valid JSON scores parsed`);
       } catch (batchErr) {
         console.warn(`Batch ${i+1} failed: ${batchErr.message}`);

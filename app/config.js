@@ -33,5 +33,5 @@ const CONFIG = {
   ].join(","),
   CHUNK_SIZE: 100,
   RANK_BATCH_SIZE: 10,
-  MAX_CANDIDATES: 50,
+  MAX_CANDIDATES: 9999,
 };
