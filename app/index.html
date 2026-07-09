@@ -6,6 +6,7 @@
   <title>Taste Finder — Discover places you'll love</title>
   <link rel="stylesheet" href="style.css">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 </head>
 <body>
   <div id="app">
@@ -58,6 +59,18 @@
         <button id="rebuild-profile" class="btn-secondary">Rebuild Profile</button>
       </div>
 
+      <!-- Selected places toolbar -->
+      <div class="selection-section" id="selection-section" style="display:none">
+        <h3>✅ Selected Places</h3>
+        <p id="selection-count" class="selection-count">0 places selected</p>
+        <div class="selection-actions">
+          <button id="open-selected-maps" class="btn-secondary" disabled>🗺️ View on Maps</button>
+          <button id="download-kml" class="btn-secondary" disabled>📥 KML</button>
+          <button id="download-csv" class="btn-secondary" disabled>📋 CSV</button>
+          <button id="clear-selection" class="btn-secondary">Clear</button>
+        </div>
+      </div>
+
       <div class="sidebar-footer">
         <p class="privacy">🔒 Keys stored only in your browser. No server.</p>
       </div>
@@ -79,6 +92,7 @@
     </main>
   </div>
 
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="config.js"></script>
   <script src="parser.js"></script>
   <script src="engine.js"></script>

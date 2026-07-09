@@ -2,6 +2,12 @@
 
 const App = {
   savedPlaces: new Set(), // starred places (session only)
+  selectedPlaces: [], // checkbox-selected places for export
+  currentPage: 0,
+  pageSize: 10,
+  currentResults: [],
+  resultMap: null,
+  mapMarkers: [],
 
   init() {
     this.cacheElements();
@@ -71,6 +77,12 @@ const App = {
     this.els.chatInput.addEventListener("keypress", (e) => {
       if (e.key === "Enter") this.sendMessage();
     });
+
+    // Selection toolbar
+    document.getElementById("open-selected-maps")?.addEventListener("click", () => this.openSelectedInMaps());
+    document.getElementById("download-kml")?.addEventListener("click", () => this.downloadKML());
+    document.getElementById("download-csv")?.addEventListener("click", () => this.downloadCSV());
+    document.getElementById("clear-selection")?.addEventListener("click", () => this.clearSelection());
   },
 
   loadFromStorage() {
@@ -258,23 +270,273 @@ const App = {
         return;
       }
 
-      // Build place cards
-      let html = `<p>Here are **${top.length} places in ${city}** that match your taste:</p>`;
-      for (const p of top) {
-        html += this.placeCardHTML(p);
-      }
-      html += `<p style="color:var(--text-muted);font-size:12px;margin-top:12px">📊 Ranked ${ranked.length} candidates from ${queries.length} searches. Showing top ${top.length} with score ≥ 5/10.</p>`;
-
-      this.addMessage("bot", html);
+      // Display results with map + pagination
+      this.currentResults = top;
+      this.currentPage = 0;
+      this.renderResultsMessage(top, city, queries, ranked.length);
     } catch (err) {
       this.addMessage("bot", `❌ Search error: ${err.message}. Please check your API keys and try again.`);
     }
   },
 
-  placeCardHTML(p) {
+  renderResultsMessage(places, city, queries, totalRanked) {
+    const totalPages = Math.ceil(places.length / this.pageSize);
+
+    let html = `<p>Here are **${places.length} places in ${city}** that match your taste:</p>`;
+    html += `<p style="color:var(--text-muted);font-size:12px">📊 Ranked ${totalRanked} candidates from ${queries.length} searches. Showing ${places.length} with score ≥ 5/10.</p>`;
+
+    // Results toolbar
+    html += `<div class="results-toolbar">`;
+    html += `<div class="toolbar-left">`;
+    html += `<button onclick="App.selectAll()">☑️ Select All</button>`;
+    html += `<button onclick="App.selectNone()">☐ Unselect All</button>`;
+    html += `<span style="font-size:12px;color:var(--text-muted)">Sort:</span>`;
+    html += `<select class="sort-select" onchange="App.sortResults(this.value)">`;
+    html += `<option value="score">Taste Score</option>`;
+    html += `<option value="rating">Rating</option>`;
+    html += `<option value="name">Name</option>`;
+    html += `</select>`;
+    html += `</div>`;
+    html += `<div class="toolbar-right">`;
+    html += `<button onclick="App.toggleMap()">🗺️ Toggle Map</button>`;
+    html += `</div>`;
+    html += `</div>`;
+
+    // Map container
+    html += `<div class="map-container" id="map-container">`;
+    html += `<div class="map-header" onclick="App.toggleMap()"><span>🗺️ Map View — ${places.length} places</span><span class="toggle-icon">▼</span></div>`;
+    html += `<div id="results-map"></div>`;
+    html += `</div>`;
+
+    // Place cards container
+    html += `<div id="place-cards"></div>`;
+
+    // Pagination
+    if (totalPages > 1) {
+      html += `<div class="pagination" id="pagination"></div>`;
+    }
+
+    this.addMessage("bot", html);
+
+    // Render first page
+    this.renderPage();
+
+    // Render map
+    setTimeout(() => this.renderMap(), 100);
+  },
+
+  renderPage() {
+    const places = this.currentResults;
+    const totalPages = Math.ceil(places.length / this.pageSize);
+    const start = this.currentPage * this.pageSize;
+    const end = start + this.pageSize;
+    const pagePlaces = places.slice(start, end);
+
+    const container = document.getElementById("place-cards");
+    if (!container) return;
+
+    let html = "";
+    for (const p of pagePlaces) {
+      html += this.placeCardHTML(p, start + pagePlaces.indexOf(p) + 1);
+    }
+    container.innerHTML = html;
+
+    // Render pagination
+    const pagContainer = document.getElementById("pagination");
+    if (pagContainer && totalPages > 1) {
+      let pagHtml = "";
+      pagHtml += `<button onclick="App.goToPage(${this.currentPage - 1})" ${this.currentPage === 0 ? "disabled" : ""}>← Prev</button>`;
+      for (let i = 0; i < totalPages; i++) {
+        pagHtml += `<button onclick="App.goToPage(${i})" class="${i === this.currentPage ? "active" : ""}">${i + 1}</button>`;
+      }
+      pagHtml += `<button onclick="App.goToPage(${this.currentPage + 1})" ${this.currentPage >= totalPages - 1 ? "disabled" : ""}>Next →</button>`;
+      pagHtml += `<span class="page-info">${start + 1}-${Math.min(end, places.length)} of ${places.length}</span>`;
+      pagContainer.innerHTML = pagHtml;
+    }
+
+    this.scrollToBottom();
+  },
+
+  goToPage(page) {
+    const totalPages = Math.ceil(this.currentResults.length / this.pageSize);
+    if (page < 0 || page >= totalPages) return;
+    this.currentPage = page;
+    this.renderPage();
+  },
+
+  sortResults(sortBy) {
+    if (sortBy === "score") {
+      this.currentResults.sort((a, b) => b.score - a.score);
+    } else if (sortBy === "rating") {
+      this.currentResults.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+    } else if (sortBy === "name") {
+      this.currentResults.sort((a, b) => a.name.localeCompare(b.name));
+    }
+    this.currentPage = 0;
+    this.renderPage();
+    this.renderMap();
+  },
+
+  toggleMap() {
+    const container = document.getElementById("map-container");
+    if (container) {
+      container.classList.toggle("collapsed");
+      if (!container.classList.contains("collapsed") && this.resultMap) {
+        setTimeout(() => this.resultMap.invalidateSize(), 100);
+      }
+    }
+  },
+
+  renderMap() {
+    const mapEl = document.getElementById("results-map");
+    if (!mapEl) return;
+
+    if (this.resultMap) {
+      this.resultMap.remove();
+      this.resultMap = null;
+    }
+
+    const places = this.currentResults.filter(p => p.lat && p.lng);
+    if (places.length === 0) return;
+
+    this.resultMap = L.map("results-map", { scrollWheelZoom: false });
+
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+      attribution: "&copy; OpenStreetMap &copy; CARTO",
+      maxZoom: 19,
+    }).addTo(this.resultMap);
+
+    this.mapMarkers = [];
+    const bounds = [];
+
+    for (const p of places) {
+      const marker = L.marker([p.lat, p.lng]).addTo(this.resultMap);
+      const score = Math.round(p.score);
+      const popupHtml = `
+        <strong>${p.name}</strong><br>
+        <span style="color:#f97316">★ ${score}/10</span> |
+        ${p.rating ? `⭐ ${p.rating} (${p.user_rating_count || 0})` : ""}<br>
+        ${p.reason || ""}<br>
+        <a href="${p.google_maps_uri || "https://www.google.com/maps/search/" + encodeURIComponent(p.name)}" target="_blank">Open in Maps →</a>
+      `;
+      marker.bindPopup(popupHtml);
+      this.mapMarkers.push(marker);
+      bounds.push([p.lat, p.lng]);
+    }
+
+    if (bounds.length > 0) {
+      this.resultMap.fitBounds(bounds, { padding: [40, 40] });
+    }
+
+    setTimeout(() => this.resultMap.invalidateSize(), 200);
+  },
+
+  // ─── Selection / Export ───────────────────────────────
+
+  toggleSelect(name, checkbox) {
+    const place = this.currentResults.find(p => p.name === name);
+    if (!place) return;
+
+    if (checkbox.checked) {
+      if (!this.selectedPlaces.find(p => p.name === name)) {
+        this.selectedPlaces.push(place);
+      }
+    } else {
+      this.selectedPlaces = this.selectedPlaces.filter(p => p.name !== name);
+    }
+    this.updateSelectionUI();
+  },
+
+  selectAll() {
+    for (const p of this.currentResults) {
+      if (!this.selectedPlaces.find(s => s.name === p.name)) {
+        this.selectedPlaces.push(p);
+      }
+    }
+    this.renderPage();
+    this.updateSelectionUI();
+  },
+
+  selectNone() {
+    const currentNames = new Set(this.currentResults.map(p => p.name));
+    this.selectedPlaces = this.selectedPlaces.filter(p => !currentNames.has(p.name));
+    this.renderPage();
+    this.updateSelectionUI();
+  },
+
+  clearSelection() {
+    this.selectedPlaces = [];
+    this.renderPage();
+    this.updateSelectionUI();
+  },
+
+  updateSelectionUI() {
+    const section = document.getElementById("selection-section");
+    const countEl = document.getElementById("selection-count");
+    const btns = ["open-selected-maps", "download-kml", "download-csv"];
+
+    if (this.selectedPlaces.length > 0) {
+      section.style.display = "block";
+      countEl.textContent = `${this.selectedPlaces.length} place${this.selectedPlaces.length > 1 ? "s" : ""} selected`;
+      btns.forEach(id => { document.getElementById(id).disabled = false; });
+    } else {
+      section.style.display = "none";
+      btns.forEach(id => { document.getElementById(id).disabled = true; });
+    }
+  },
+
+  openSelectedInMaps() {
+    if (this.selectedPlaces.length === 0) return;
+    // Google Maps multi-destination URL
+    const names = this.selectedPlaces.map(p => encodeURIComponent(p.name + " " + (p.address || "")));
+    const url = `https://www.google.com/maps/dir/${names.join("/")}`;
+    window.open(url, "_blank");
+  },
+
+  downloadKML() {
+    if (this.selectedPlaces.length === 0) return;
+    let kml = `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2">\n<Document>\n<name>Taste Finder Selection</name>\n`;
+    for (const p of this.selectedPlaces) {
+      kml += `<Placemark>\n<name><![CDATA[${p.name}]]></name>\n`;
+      if (p.reason) kml += `<description><![CDATA[Score: ${p.score}/10. ${p.reason}]]></description>\n`;
+      if (p.lat && p.lng) {
+        kml += `<Point><coordinates>${p.lng},${p.lat},0</coordinates></Point>\n`;
+      }
+      kml += `</Placemark>\n`;
+    }
+    kml += `</Document>\n</kml>`;
+    this.downloadFile(kml, "taste-finder-places.kml", "application/vnd.google-earth.kml+xml");
+  },
+
+  downloadCSV() {
+    if (this.selectedPlaces.length === 0) return;
+    let csv = "Name,Category,Score,Rating,Reviews,Price,Address,Website,GoogleMaps,Lat,Lng\n";
+    for (const p of this.selectedPlaces) {
+      const fields = [
+        p.name, p.category, p.score, p.rating || "", p.user_rating_count || "",
+        p.price_level, p.address, p.website, p.google_maps_uri, p.lat || "", p.lng || ""
+      ];
+      csv += fields.map(f => `"${String(f).replace(/"/g, '""')}"`).join(",") + "\n";
+    }
+    this.downloadFile(csv, "taste-finder-places.csv", "text/csv");
+  },
+
+  downloadFile(content, filename, mimeType) {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
+
+  placeCardHTML(p, index) {
     const score = Math.round(p.score);
-    const stars = "★".repeat(score) + "☆".repeat(10 - score);
     const isSaved = this.savedPlaces.has(p.name);
+    const isSelected = this.selectedPlaces.find(s => s.name === p.name);
 
     let meta = [];
     if (p.rating) meta.push(`★ ${p.rating} (${p.user_rating_count || 0} reviews)`);
@@ -293,8 +555,15 @@ const App = {
 
     return `
       <div class="place-card">
+        <div class="card-top-bar">
+          <div class="place-name">${index ? `${index}. ` : ""}${p.name}</div>
+          <label class="select-checkbox">
+            <input type="checkbox" ${isSelected ? "checked" : ""} onchange="App.toggleSelect('${p.name.replace(/'/g, "\\'")}', this)">
+            <span>Select</span>
+          </label>
+        </div>
         <div class="place-card-header">
-          <div class="place-name">${p.name}</div>
+          <div></div>
           <div class="place-score">${score}/10</div>
         </div>
         <div class="place-meta">${metaHTML}</div>
