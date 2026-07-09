@@ -285,6 +285,8 @@ const App = {
 
   renderResultsMessage(places, city, queries, totalRanked) {
     const totalPages = Math.ceil(places.length / this.pageSize);
+    // Unique ID suffix so multiple result sets don't clash
+    this._resultId = Date.now();
 
     let html = `<p>Here are **${places.length} places in ${city}** that match your taste:</p>`;
     html += `<p style="color:var(--text-muted);font-size:12px">📊 Ranked ${totalRanked} candidates from ${queries.length} searches. Showing ${places.length} with score ≥ 5/10.</p>`;
@@ -307,17 +309,17 @@ const App = {
     html += `</div>`;
 
     // Map container
-    html += `<div class="map-container" id="map-container">`;
+    html += `<div class="map-container" id="map-container-${this._resultId}">`;
     html += `<div class="map-header" onclick="App.toggleMap()"><span>🗺️ Map View — ${places.length} places</span><span class="toggle-icon">▼</span></div>`;
-    html += `<div id="results-map"></div>`;
+    html += `<div id="results-map-${this._resultId}"></div>`;
     html += `</div>`;
 
     // Place cards container
-    html += `<div id="place-cards"></div>`;
+    html += `<div id="place-cards-${this._resultId}"></div>`;
 
     // Pagination
     if (totalPages > 1) {
-      html += `<div class="pagination" id="pagination"></div>`;
+      html += `<div class="pagination" id="pagination-${this._resultId}"></div>`;
     }
 
     this.addMessage("bot", html);
@@ -336,7 +338,7 @@ const App = {
     const end = start + this.pageSize;
     const pagePlaces = places.slice(start, end);
 
-    const container = document.getElementById("place-cards");
+    const container = document.getElementById(`place-cards-${this._resultId}`);
     if (!container) return;
 
     let html = "";
@@ -346,7 +348,7 @@ const App = {
     container.innerHTML = html;
 
     // Render pagination
-    const pagContainer = document.getElementById("pagination");
+    const pagContainer = document.getElementById(`pagination-${this._resultId}`);
     if (pagContainer && totalPages > 1) {
       let pagHtml = "";
       pagHtml += `<button onclick="App.goToPage(${this.currentPage - 1})" ${this.currentPage === 0 ? "disabled" : ""}>← Prev</button>`;
@@ -382,7 +384,7 @@ const App = {
   },
 
   toggleMap() {
-    const container = document.getElementById("map-container");
+    const container = document.getElementById(`map-container-${this._resultId}`);
     if (container) {
       container.classList.toggle("collapsed");
       if (!container.classList.contains("collapsed") && this.resultMap) {
@@ -392,7 +394,7 @@ const App = {
   },
 
   renderMap() {
-    const mapEl = document.getElementById("results-map");
+    const mapEl = document.getElementById(`results-map-${this._resultId}`);
     if (!mapEl) return;
 
     if (this.resultMap) {
@@ -403,7 +405,7 @@ const App = {
     const places = this.currentResults.filter(p => p.lat && p.lng);
     if (places.length === 0) return;
 
-    this.resultMap = L.map("results-map", { scrollWheelZoom: false });
+    this.resultMap = L.map(mapEl, { scrollWheelZoom: false });
 
     L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
       attribution: "&copy; OpenStreetMap &copy; CARTO",
