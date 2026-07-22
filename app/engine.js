@@ -7,6 +7,9 @@ const Engine = {
     apiKey_places: "",
     apiKey_llm: "",
     llmModel: "z-ai/glm-4.5",
+    _lastCount: 0,
+    _scoredCount: 0,
+    _locationBias: null, // { lat, lng, city }
   },
 
   // ─── LLM Call ──────────────────────────────────────────
@@ -182,12 +185,115 @@ const Engine = {
     return profile;
   },
 
+  // ─── Intent parsing (city + search term, case-insensitive) ──
+  parseUserIntent(userMessage) {
+    const text = (userMessage || "").trim();
+
+    // City: "in/near/around/at <City[, Region]>" — allow commas; stop at ?!. or EOL
+    const cityMatch = text.match(
+      /\b(?:in|near|around|at)\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9.',\-\s]{1,80}?)(?=\s*[?!.]|$)/i
+    );
+    let city = cityMatch ? cityMatch[1].trim() : "";
+    // Drop trailing filler; collapse whitespace
+    city = city
+      .replace(/\s+(please|thanks|for me)$/i, "")
+      .replace(/\s+/g, " ")
+      .replace(/,+$/g, "")
+      .trim();
+
+    // Search term = message minus location + command filler
+    let cleaned = text;
+    if (cityMatch) {
+      cleaned = cleaned.replace(cityMatch[0], " ");
+    } else {
+      cleaned = cleaned.replace(
+        /\b(?:in|near|around|at)\s+[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9.',\-\s]{1,80}?(?=\s*[?!.]|$)/gi,
+        " "
+      );
+    }
+    cleaned = cleaned
+      .replace(/\b(?:find|recommend|suggest|show(?:\s+me)?|looking\s+for|i\s+want|i'?m\s+looking\s+for|search(?:\s+for)?|get|give\s+me)\b/gi, " ")
+      .replace(/\b(?:places?|spots?|options?|recommendations?|similar|like|good|best)\b/gi, " ")
+      .replace(/[?!.]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    const foodIntent = this.isFoodIntent(cleaned, text);
+
+    return { city, searchTerm: cleaned, foodIntent, raw: text };
+  },
+
+  isFoodIntent(searchTerm, raw) {
+    const s = `${searchTerm} ${raw}`.toLowerCase();
+    // Non-food first — beaches/museums shouldn't get "restaurant" suffix
+    const nonFood = /\b(beaches?|trails?|hikes?|hiking|parks?|museums?|galleries?|viewpoints?|lookouts?|waterfalls?|temples?|churches?|ruins?|markets?(?!\s*food)|hotels?|hostels?|airbnb|clubs?|nightlife|concerts?|festivals?)\b/;
+    const food = /\b(restaurants?|food|eat|dining|dinner|lunch|brunch|breakfast|seafood|fish|sushi|pizza|pasta|ramen|bbq|steak|vegan|vegetarian|cafes?|coffee|baker(?:y|ies)|bars?|pubs?|brewer(?:y|ies)|wine|cocktails?|tapas|cuisine|kitchen|bistros?|trattorias?|osterias?|tavernas?|pescado|pesce)\b/;
+    if (nonFood.test(s) && !food.test(s)) return false;
+    if (!searchTerm || searchTerm.length < 2) return false;
+    // Explicit food → true; free-text dish (e.g. "fresh fish") → true; pure nonfood already false
+    return food.test(s) || !nonFood.test(s);
+  },
+
+  // True when term already names a venue type — skip redundant "… restaurant"
+  hasVenueType(searchTerm) {
+    return /\b(restaurants?|cafes?|coffee|bars?|pubs?|brewer(?:y|ies)|baker(?:y|ies)|bistros?|trattorias?|osterias?|tavernas?|hotels?|museums?|galleries?|beaches?|trails?|parks?)\b/i.test(searchTerm || "");
+  },
+
+  // ─── Geocode city via Places Text Search (bias center) ──
+  async geocodeCity(city) {
+    if (!city || !this.state.apiKey_places) return null;
+    try {
+      const body = {
+        textQuery: city,
+        languageCode: "en",
+        pageSize: 1,
+      };
+      const res = await fetch(CONFIG.PLACES_API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Goog-Api-Key": this.state.apiKey_places,
+          "X-Goog-FieldMask": "places.location,places.displayName,places.formattedAddress",
+        },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      const p = (data.places || [])[0];
+      const loc = p?.location;
+      if (!loc?.latitude || !loc?.longitude) return null;
+      return {
+        lat: loc.latitude,
+        lng: loc.longitude,
+        city,
+        label: p.displayName?.text || city,
+      };
+    } catch {
+      return null;
+    }
+  },
+
   // ─── Google Places Text Search ──────────────────────────
-  async searchPlaces(query, pageToken) {
+  async searchPlaces(query, pageToken, locationBias) {
     if (!this.state.apiKey_places) throw new Error("Google Places API key required");
 
-    const body = { textQuery: query, languageCode: "en" };
+    const body = {
+      textQuery: query,
+      languageCode: "en",
+      rankPreference: "RELEVANCE",
+    };
     if (pageToken) body.pageToken = pageToken;
+    if (locationBias?.lat != null && locationBias?.lng != null) {
+      body.locationBias = {
+        circle: {
+          center: {
+            latitude: locationBias.lat,
+            longitude: locationBias.lng,
+          },
+          radius: CONFIG.LOCATION_BIAS_RADIUS_M || 25000,
+        },
+      };
+    }
 
     const res = await fetch(CONFIG.PLACES_API_URL, {
       method: "POST",
@@ -207,18 +313,20 @@ const Engine = {
     return await res.json();
   },
 
-  async searchAllQueries(queries, onProgress) {
+  async searchAllQueries(queries, onProgress, locationBias) {
     const allPlaces = [];
     const seen = new Set();
     this.state._lastCount = 0;
+    this.state._locationBias = locationBias || null;
+    const maxPages = CONFIG.SEARCH_PAGES || 2;
 
     for (let i = 0; i < queries.length; i++) {
       if (onProgress) onProgress(i + 1, queries.length, queries[i]);
       let page = 1;
       let token = null;
 
-      while (page <= 2) {
-        const result = await this.searchPlaces(queries[i], token);
+      while (page <= maxPages) {
+        const result = await this.searchPlaces(queries[i], token, locationBias);
         const places = result.places || [];
         if (!places.length) break;
 
@@ -226,7 +334,11 @@ const Engine = {
           const parsed = this.parsePlace(p);
           if (!parsed) continue;
           if (parsed.business_status === "CLOSED_PERMANENTLY") continue;
-          const key = parsed.name.toLowerCase() + "|" + parsed.address.substring(0, 30).toLowerCase();
+          if (parsed.business_status === "CLOSED_TEMPORARILY") continue;
+
+          // Prefer Places id; fall back to name+address key
+          const key = parsed.id
+            || (parsed.name.toLowerCase() + "|" + (parsed.address || "").substring(0, 40).toLowerCase());
           if (seen.has(key)) continue;
           seen.add(key);
           allPlaces.push(parsed);
@@ -237,16 +349,20 @@ const Engine = {
         token = result.nextPageToken;
         if (!token) break;
         page++;
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise(r => setTimeout(r, 1200));
       }
 
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, 400));
     }
 
     return allPlaces;
   },
 
   parsePlace(p) {
+    // Places API (New) returns resource name like "places/ChIJ..." — prefer short id
+    const rawId = p.id || p.name || "";
+    const id = String(rawId).replace(/^places\//, "");
+
     const name = p.displayName?.text || "";
     if (!name) return null;
 
@@ -273,6 +389,7 @@ const Engine = {
 
     const loc = p.location || {};
     return {
+      id: id || null,
       name,
       category,
       primary_type: primaryType,
@@ -286,62 +403,87 @@ const Engine = {
       website: p.websiteUri || "",
       lat: loc.latitude || null,
       lng: loc.longitude || null,
-      serves_coffee: p.servesCoffee || false,
-      serves_beer: p.servesBeer || false,
-      serves_wine: p.servesWine || false,
-      serves_cocktails: p.servesCocktails || false,
-      serves_brunch: p.servesBrunch || false,
-      outdoor_seating: p.outdoorSeating || false,
-      live_music: p.liveMusic || false,
+      serves_coffee: !!p.servesCoffee,
+      serves_beer: !!p.servesBeer,
+      serves_wine: !!p.servesWine,
+      serves_cocktails: !!p.servesCocktails,
+      serves_brunch: !!p.servesBrunch,
+      serves_dessert: !!p.servesDessert,
+      serves_vegetarian: !!p.servesVegetarianFood,
+      outdoor_seating: !!p.outdoorSeating,
+      dine_in: !!p.dineIn,
+      takeout: !!p.takeout,
+      good_for_groups: !!p.goodForGroups,
+      live_music: !!p.liveMusic,
       business_status: p.businessStatus || "",
     };
   },
 
   // ─── Build queries from profile + user message ─────────
+  // Profile influences ranking, NOT search terms, when the user gave a specific intent.
   buildQueries(profile, userMessage) {
-    // Extract city from user message (e.g., "fresh fish in Catania")
-    const cityMatch = userMessage.match(/(?:in|near|around)\s+([A-Z][a-zA-Z\s,]+?)(?:\?|$|\.|,)/);
-    const city = cityMatch ? cityMatch[1].trim() : "";
-
-    // Extract the user's specific search term (everything except the city + filler words)
-    const cleaned = userMessage
-      .replace(/(?:in|near|around)\s+[A-Z][a-zA-Z\s,]+/gi, "")
-      .replace(/(?:find|recommend|suggest|show|looking for|i want|places?|similar|like|good|best|restaurants?|food|spots?)\s+/gi, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-
+    const intent = this.parseUserIntent(userMessage);
+    const { city, searchTerm, foodIntent } = intent;
     const keywords = profile?.search_keywords || [];
-    let queries = [];
+    const queries = [];
 
-    if (cleaned && cleaned.length > 2) {
-      // User asked for something specific — search ONLY for that
-      // Generate variations to catch more relevant results
-      if (city) {
-        queries.push(`${cleaned} in ${city}`);
-        queries.push(`${cleaned} restaurant in ${city}`);
-        queries.push(`${cleaned} in ${city}`);
+    const withCity = (q) => (city ? `${q} in ${city}` : q);
+
+    if (searchTerm && searchTerm.length > 2) {
+      // Specific intent — ONLY expand the search term (no profile keyword mixing)
+      queries.push(withCity(searchTerm));
+
+      if (foodIntent) {
+        // Add "restaurant" only when the term is a dish/cuisine, not already a venue type
+        // ("fresh fish" → yes; "craft beer bars" / "coffee" → no)
+        if (!this.hasVenueType(searchTerm) && !/\brestaurant/i.test(searchTerm)) {
+          queries.push(withCity(`${searchTerm} restaurant`));
+        }
+        // Light type variations for common cases
+        if (/\bfish|seafood|pesce|pescado\b/i.test(searchTerm)) {
+          queries.push(withCity("seafood restaurant"));
+          queries.push(withCity("fresh seafood"));
+        }
       } else {
-        queries.push(cleaned);
-        queries.push(`${cleaned} restaurant`);
-      }
-      // Add 2-3 profile keywords as supplementary (not 15)
-      // These help catch places that match both the search term AND the user's taste
-      for (const kw of keywords.slice(0, 3)) {
-        // Only add if the profile keyword is related to the search term
-        // e.g. if user searched "fresh fish", don't add "craft beer"
-        if (city) queries.push(`${cleaned} ${kw} in ${city}`);
-        else queries.push(`${cleaned} ${kw}`);
+        // Non-food: never force "restaurant"
+        if (/\bbeach/i.test(searchTerm)) {
+          if (!/^beaches?$/i.test(searchTerm.trim())) queries.push(withCity("beach"));
+          queries.push(withCity("beach access"));
+        } else if (/\bhike|trail|hiking\b/i.test(searchTerm)) {
+          queries.push(withCity("hiking trail"));
+          queries.push(withCity("nature trail"));
+        } else if (/\bmuseum|galler/i.test(searchTerm)) {
+          queries.push(withCity("museum"));
+          queries.push(withCity("art museum"));
+        }
       }
     } else {
-      // No specific search term — use profile keywords + city
+      // Open browse — use taste profile keywords only
       for (const kw of keywords.slice(0, 15)) {
-        if (city) queries.push(`${kw} in ${city}`);
-        else queries.push(kw);
+        const k = String(kw).trim();
+        if (!k) continue;
+        // Abstract vibe words need a place type for Google to cooperate
+        if (/^(artisanal|minimal design|design-forward|cozy|aesthetic)$/i.test(k)) {
+          queries.push(withCity(`${k} restaurant`));
+        } else {
+          queries.push(withCity(k));
+        }
+      }
+      if (city && queries.length === 0) {
+        queries.push(`best places in ${city}`);
       }
     }
 
-    // Deduplicate
-    return [...new Set(queries)];
+    // Deduplicate normalized
+    const seen = new Set();
+    const out = [];
+    for (const q of queries) {
+      const n = q.toLowerCase().replace(/\s+/g, " ").trim();
+      if (!n || seen.has(n)) continue;
+      seen.add(n);
+      out.push(q.trim());
+    }
+    return out;
   },
 
   // ─── Rank candidates ────────────────────────────────────
@@ -388,16 +530,24 @@ const Engine = {
       }
     }
 
-    // Merge scores with place data
-    const scoreMap = {};
+    // Merge scores by id first, then exact name (case-insensitive)
+    const scoreById = {};
+    const scoreByName = {};
     for (const s of allScores) {
-      if (s.name) scoreMap[s.name.toLowerCase()] = s;
+      if (!s || s.score == null) continue;
+      if (s.id) scoreById[String(s.id)] = s;
+      if (s.name) scoreByName[s.name.toLowerCase()] = s;
     }
 
     const ranked = filtered
       .map(p => {
-        const s = scoreMap[p.name.toLowerCase()] || {};
-        return { ...p, score: s.score || 0, reason: s.reason || "", tags: s.tags || [] };
+        const s = (p.id && scoreById[p.id]) || scoreByName[p.name.toLowerCase()] || {};
+        return {
+          ...p,
+          score: typeof s.score === "number" ? s.score : 0,
+          reason: s.reason || "",
+          tags: s.tags || [],
+        };
       })
       .sort((a, b) => b.score - a.score);
 
@@ -407,27 +557,29 @@ const Engine = {
   async rankBatch(batch, profileSummary, batchIdx, totalBatches, searchQuery) {
     try {
       const placesText = batch.map(p => this.formatPlace(p)).join("\n");
-      const system = `You are a taste-matching engine. Score each place 0-10 on how well it matches the person's taste profile. Consider cuisine, vibe, design, outdoor interests, and whether this person would love this place. Be discerning.`;
+      const system = `You are a taste-matching engine. Score each place 0-10 on how well it matches the person's taste profile. Consider cuisine, vibe, design, outdoor interests, and whether this person would love this place. Be discerning. When a search intent is provided, places that do not match the intent MUST score 0-3 even if taste would otherwise fit.`;
       const searchContext = searchQuery
-        ? `\n\n## Important: The user searched for "${searchQuery}". Places that match this search intent should score higher. Places that don't match the search at all should score 0-3 regardless of taste match.`
+        ? `\n\n## User search intent: "${searchQuery}"\n- Intent match is REQUIRED for scores above 3.\n- Places matching intent AND taste: 7-10.\n- Places matching intent only: 4-6.\n- Places not matching intent: 0-3.`
         : "";
-      const user = `## Taste Profile\n${profileSummary}${searchContext}\n\n## Candidate Places\n${placesText}\n\nScore each place 0-10. Return JSON array:\n[{"name":"","score":0,"reason":"","tags":[]}]\n\nCRITICAL: Return ONLY the JSON array. No explanations, no reasoning, no markdown, no code fences. Start with [ and end with ].`;
+      const user = `## Taste Profile\n${profileSummary}${searchContext}\n\n## Candidate Places\n${placesText}\n\nScore each place 0-10. Return JSON array with the same names (and id when given):\n[{"id":"","name":"","score":0,"reason":"","tags":[]}]\n\nCRITICAL: Return ONLY the JSON array. No explanations, no reasoning, no markdown, no code fences. Start with [ and end with ].`;
       const response = await this.llmCall(
         [{ role: "system", content: system }, { role: "user", content: user }],
         0.2, 8000
       );
       const scores = this.extractJSON(response);
       if (Array.isArray(scores)) return scores;
-      console.warn(`Batch ${batchIdx+1}: No valid JSON scores parsed`);
+      console.warn(`Batch ${batchIdx + 1}: No valid JSON scores parsed`);
       return [];
     } catch (err) {
-      console.warn(`Batch ${batchIdx+1} failed: ${err.message}`);
+      console.warn(`Batch ${batchIdx + 1} failed: ${err.message}`);
       return [];
     }
   },
 
   formatPlace(p) {
-    const parts = [`  ${p.name}`];
+    const parts = [];
+    if (p.id) parts.push(`id:${p.id}`);
+    parts.push(p.name);
     if (p.category) parts.push(`[${p.category}]`);
     if (p.primary_type) parts.push(`type:${p.primary_type}`);
     if (p.rating) parts.push(`★${p.rating}(${p.user_rating_count || 0})`);
@@ -438,11 +590,13 @@ const Engine = {
     for (const [flag, label] of [
       ["serves_coffee", "coffee"], ["serves_beer", "beer"], ["serves_wine", "wine"],
       ["serves_cocktails", "cocktails"], ["serves_brunch", "brunch"],
-      ["outdoor_seating", "outdoor"], ["live_music", "live music"]
+      ["serves_dessert", "dessert"], ["serves_vegetarian", "vegetarian"],
+      ["outdoor_seating", "outdoor"], ["dine_in", "dine-in"], ["takeout", "takeout"],
+      ["good_for_groups", "groups"], ["live_music", "live music"],
     ]) {
       if (p[flag]) flags.push(label);
     }
     if (flags.length) parts.push(`\n     amenities: ${flags.join(", ")}`);
-    return parts.join(" ");
+    return "  " + parts.join(" ");
   },
 };

@@ -4,6 +4,7 @@ const CONFIG = {
   PLACES_API_URL: "https://places.googleapis.com/v1/places:searchText",
   OPENROUTER_URL: "https://openrouter.ai/api/v1/chat/completions",
   PLACES_FIELD_MASK: [
+    "places.id",
     "places.displayName",
     "places.formattedAddress",
     "places.rating",
@@ -34,4 +35,10 @@ const CONFIG = {
   CHUNK_SIZE: 100,
   RANK_BATCH_SIZE: 10,
   MAX_CANDIDATES: 9999,
+  // Wave 1
+  DEFAULT_MIN_SCORE: 5,
+  MAX_DISPLAY_RESULTS: 100,       // show more than old hardcap of 15
+  SEARCH_PAGES: 2,                // 1-3; API max 3
+  LOCATION_BIAS_RADIUS_M: 25000,  // 25km circle when city is geocoded
+  MAPS_DIR_MAX_STOPS: 10,         // Google dir URL practical limit
 };

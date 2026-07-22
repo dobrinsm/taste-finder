@@ -455,12 +455,67 @@ body {
 .map-container.collapsed .toggle-icon { transform: rotate(-90deg); }
 .map-container.collapsed .leaflet-container { display: none; }
 
-#results-map {
+/* Map pane — class works with dynamic ids (results-map-<timestamp>) */
+.map-container .results-map,
+.map-container .leaflet-container {
   height: 450px;
   width: 100%;
 }
 
-.map-container.collapsed #results-map { display: none; }
+.map-container.collapsed .results-map,
+.map-container.collapsed .leaflet-container {
+  display: none;
+}
+
+.map-empty {
+  height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  background: var(--bg);
+}
+
+.results-meta {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.results-toolbar .toolbar-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  padding: 0 2px;
+  cursor: default;
+}
+
+.custom-marker-wrap {
+  background: transparent;
+  border: none;
+}
+
+.custom-marker {
+  background: var(--accent);
+  color: white;
+  border-radius: 50% 50% 50% 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  transform: rotate(-45deg);
+  border: 2px solid var(--bg);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+}
+
+.custom-marker span {
+  transform: rotate(45deg);
+  line-height: 1;
+}
 
 /* Leaflet dark theme tweaks */
 .leaflet-container {
@@ -486,26 +541,6 @@ body {
 
 .leaflet-popup-content a {
   color: var(--accent);
-}
-
-/* Custom marker */
-.custom-marker {
-  background: var(--accent);
-  color: white;
-  border-radius: 50% 50% 50% 0;
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  font-weight: 700;
-  transform: rotate(-45deg);
-  border: 2px solid var(--bg);
-}
-
-.custom-marker span {
-  transform: rotate(45deg);
 }
 
 /* === Pagination === */
