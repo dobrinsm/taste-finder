@@ -691,3 +691,62 @@ body {
   font-family: inherit;
   cursor: pointer;
 }
+
+
+/* === Filters bar (Wave 2) === */
+.filters-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  align-items: flex-end;
+  margin: 8px 0 12px;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.filter-field .sort-select {
+  min-width: 90px;
+}
+
+.filter-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text);
+  padding: 6px 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.filter-check input { accent-color: var(--accent); }
+
+/* Place card highlight (map ↔ list) */
+.place-card.highlighted {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), 0 4px 16px rgba(249, 115, 22, 0.15);
+}
+
+.place-card { cursor: pointer; }
+
+.custom-marker.selected {
+  box-shadow: 0 0 0 3px #fff, 0 2px 8px rgba(0,0,0,0.5);
+}
+
+.custom-marker.active {
+  transform: rotate(-45deg) scale(1.15);
+  z-index: 10;
+}

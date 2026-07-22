@@ -35,10 +35,25 @@ const CONFIG = {
   CHUNK_SIZE: 100,
   RANK_BATCH_SIZE: 10,
   MAX_CANDIDATES: 9999,
-  // Wave 1
+
+  // Defaults
+  DEFAULT_LLM_MODEL: "openai/gpt-4o-mini",
   DEFAULT_MIN_SCORE: 5,
-  MAX_DISPLAY_RESULTS: 100,       // show more than old hardcap of 15
-  SEARCH_PAGES: 2,                // 1-3; API max 3
+  MAX_DISPLAY_RESULTS: 100,
+
+  // Search
+  SEARCH_PAGES: 3,                // API max 3
   LOCATION_BIAS_RADIUS_M: 25000,  // 25km circle when city is geocoded
-  MAPS_DIR_MAX_STOPS: 10,         // Google dir URL practical limit
+  MAPS_DIR_MAX_STOPS: 10,
+
+  // Wave 2 — prefilter before expensive LLM rank
+  PREFILTER_MIN_RATING: 3.5,      // soft floor (places with null rating still pass)
+  PREFILTER_MIN_REVIEWS: 5,       // soft floor when rating present
+  LLM_RANK_CAP: 150,              // max places sent to LLM after heuristic shortlist
+  INTENT_WEIGHT: 0.45,            // combined = intent*w + taste*(1-w)
+  TASTE_WEIGHT: 0.55,
+
+  // Wave 3 — reliability
+  RANK_BATCH_RETRIES: 2,
+  LLM_CONCURRENCY: 5,
 };
