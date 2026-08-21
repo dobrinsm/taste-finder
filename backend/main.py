@@ -59,8 +59,9 @@ def health_check():
     return {
         "status": "healthy",
         "project": PROJECT_ID,
-        "engine": "Gemini 2.5/3.5 on Vertex AI",
-        "database": "Google Cloud Firestore Native",
+        "model": os.getenv("GEMINI_MODEL", "gemini-3.5-flash"),
+        "framework": "Google GenAI SDK (google-genai) with Vertex AI",
+        "infrastructure": ["Google Cloud Run", "Google Cloud Firestore Native"],
         "track": "Collaborative Partner"
     }
 

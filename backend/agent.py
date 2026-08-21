@@ -16,7 +16,8 @@ class CollaborativeTasteAgent:
         self.project_id = project_id or os.getenv("GOOGLE_CLOUD_PROJECT", "taste-finder-506205")
         self.location = location
         self.client = genai.Client(vertexai=True, project=self.project_id, location=self.location)
-        self.model_name = "gemini-2.5-flash"
+        # Support Gemini 3.5+ (gemini-3.5-flash / gemini-2.5-flash fallback configurable via env)
+        self.model_name = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
         self.db = TasteDB(project_id=self.project_id)
         self.places_api_key = os.getenv("GOOGLE_PLACES_API_KEY", "")
 

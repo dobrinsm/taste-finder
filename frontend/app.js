@@ -376,7 +376,7 @@ fileInput.addEventListener('change', async (e) => {
     uploadStatus.classList.add('hidden');
     if (res.ok) {
       const data = await res.json();
-      alert(`Successfully analyzed ${data.count} places with Gemini 2.5 on Vertex AI!`);
+      alert(`Successfully analyzed ${data.count} places with Gemini 3.5 on Vertex AI!`);
       closeModal();
       loadUserProfile();
     } else {

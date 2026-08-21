@@ -1,7 +1,7 @@
 # Taste Finder — Collaborative Partner Agent
 ### Submission for the *All Things Agentic Hackathon* (Collaborative Partner Track)
 
-[![Google GenAI SDK](https://img.shields.io/badge/Google%20GenAI%20SDK-Gemini%202.5%2F3.5-4285F4)](https://cloud.google.com/vertex-ai)
+[![Google GenAI SDK](https://img.shields.io/badge/Google%20GenAI%20SDK-Gemini%203.5%20Flash-4285F4)](https://cloud.google.com/vertex-ai)
 [![Google Cloud Run](https://img.shields.io/badge/Google%20Cloud-Cloud%20Run-34A853)](https://cloud.google.com/run)
 [![Google Cloud Firestore](https://img.shields.io/badge/Database-Cloud%20Firestore-EA4335)](https://cloud.google.com/firestore)
 [![Places API New](https://img.shields.io/badge/Google%20Maps-Places%20API%20(New)-FBBC05)](https://developers.google.com/maps/documentation/places/web-service)
@@ -47,13 +47,13 @@
 
 ## 🚀 Hackathon Mandatory Requirements Checklist
 
-- [x] **Gemini 2.5/3.5 Flash / Pro** accessed via Vertex AI & Google GenAI SDK.
-- [x] **Google Agent Framework**: Built with the **Google GenAI SDK** with structured output schemas, dynamic tools, and continuous feedback loops.
+- [x] **Gemini 3.5 Flash / Pro (or newer)** accessed via Vertex AI & Google GenAI SDK.
+- [x] **Google Agent Framework**: Built with the **Google GenAI SDK (`google-genai`)** with structured Pydantic/JSON schemas, multi-turn reasoning loops, proactive clarification triggers, and real-time state adaptation.
 - [x] **Google Cloud Infrastructure**:
-  - **Cloud Run**: Serverless containerized backend.
-  - **Cloud Firestore**: Native NoSQL database for taste vectors, sessions, and notebooks.
-  - **Vertex AI**: Enterprise-grade model hosting and inference.
-  - **Google Places API (New)**: Live geocoding and venue data.
+  - **Cloud Run**: Serverless containerized backend execution.
+  - **Cloud Firestore**: Native NoSQL document store for persistent taste vectors, session state, feedback logs, and agent notebooks.
+  - **Vertex AI**: Enterprise-grade model execution endpoint.
+  - **Google Places API (New)**: Live venue & geo-search integration.
 
 ---
 
