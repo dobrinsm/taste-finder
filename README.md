@@ -90,17 +90,51 @@ Open **`http://localhost:8000`** in your browser.
 
 ---
 
-## 🐳 Deploying to Google Cloud Run
+## ☁️ Deploying to Google Cloud Run
+
+The live deployment uses Docker → Artifact Registry → Cloud Run v2 (the `--source` / Cloud Build flow isn't available with the SA's permissions, so the image is built and pushed locally).
+
+**Service account** (`taste-finder-agent@taste-finder-506205.iam.gserviceaccount.com`) needs at minimum: Cloud Run Admin, Artifact Registry Admin (or Storage Admin), Datastore/Firestore User, and Vertex AI User. It becomes the runtime identity — config must come from env vars, **never** a baked-in `.env` (the Dockerfile strips `backend/.env` for this reason).
 
 ```bash
-# Build and deploy container directly to Cloud Run
-gcloud run deploy taste-finder-agent \
-  --source . \
-  --project taste-finder-506205 \
-  --region us-central1 \
-  --allow-unauthenticated \
-  --set-env-vars GOOGLE_CLOUD_PROJECT=taste-finder-506205,GOOGLE_PLACES_API_KEY="AIzaSy..."
+export PATH=/opt/google-cloud-sdk/bin:$PATH      # or wherever gcloud lives
+export GCLOUD_PROJECT=taste-finder-506205
+export REGION=europe-west1
+export GCP_REGISTRY=europe-west1-docker.pkg.dev/taste-finder-506205/taste-finder
+
+# 1. Auth as the SA (or a user with the roles above)
+GOOGLE_APPLICATION_CREDENTIALS=/path/to/gcp-key.json gcloud auth application-default login --brief
+
+# 2. Build + push image to Artifact Registry (Cloud Build needs perms the SA lacks)
+docker build -t "$GCP_REGISTRY/app:v3" /path/to/taste-finder
+docker push "$GCP_REGISTRY/app:v3"
+
+# 3. Deploy/redeploy the service via the Cloud Run v2 API, with env vars (no .env baked in)
+TOKEN=$(gcloud auth print-access-token)
+curl -s -X PATCH \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  "https://europe-west1-run.googleapis.com/v2/projects/$GCLOUD_PROJECT/locations/$REGION/services/taste-finder" \
+  -d '{
+    "template": {"containers": [{
+      "image": "'"$GCP_REGISTRY"'/app:v2",
+      "env": [
+        {"name":"GOOGLE_CLOUD_PROJECT","value":"taste-finder-506205"},
+        {"name":"GEMINI_MODEL","value":"gemini-2.5-flash"},
+        {"name":"GOOGLE_PLACES_API_KEY","value":"AIzaSy..."}
+      ]
+    }]}
+  }'
+# Poll the returned long-running operation until "done": {"response": {"uri": "https://taste-finder-<hash>-ew.a.run.app"}}
+
+# 4. Make it public (skip if you locked down auth) — grants roles/run.invoker to allUsers
+TOKEN=$(gcloud auth print-access-token)
+curl -s -X POST \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  "https://europe-west1-run.googleapis.com/v2/projects/$GCLOUD_PROJECT/locations/$REGION/services/taste-finder:setIamPolicy" \
+  -d '{"policy": {"bindings": [{"role":"roles/run.invoker","members":["allUsers"]}]}}'
 ```
+
+> If runtime Firestore/Vertex calls fail, the SA is missing `roles/datastore.user` and/or Vertex AI user roles — add them in IAM & Admin → Service Accounts.
 
 ---
 
