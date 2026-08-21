@@ -89,7 +89,12 @@ Return ONLY valid JSON matching this structure.
             logger.warning("No GOOGLE_PLACES_API_KEY found, returning mock places")
             return self._mock_places(query, destination or "Destination")
 
-        search_text = f"{query} in {destination}" if destination and destination.lower() not in query.lower() else query
+        # Explicitly enforce destination in search query string
+        if destination and destination.lower() not in query.lower():
+            search_text = f"{query} in {destination}"
+        else:
+            search_text = query
+
         url = "https://places.googleapis.com/v1/places:searchText"
         headers = {
             "Content-Type": "application/json",
@@ -240,11 +245,16 @@ You MUST output your response in JSON format with the following schema:
         if agent_output.get("search_needed"):
             query = agent_output.get("search_query") or user_message
             dest = agent_output.get("search_destination") or notebook.get("destination")
+
+            # Strict destination scoping: ensure queries always append the active city/destination context
+            if dest and dest.lower() not in query.lower():
+                query = f"{query} in {dest}"
+
             raw_places = self.search_google_places(query, dest)
             
             # Rank & Score Places against Taste Profile
             if raw_places:
-                recommended_places = self._rank_and_explain_places(raw_places, taste_profile, user_message)
+                recommended_places = self._rank_and_explain_places(raw_places, taste_profile, user_message, destination=dest)
 
         # Update Notebook State in Firestore
         nb_updates = agent_output.get("notebook_updates", {})
@@ -286,15 +296,18 @@ You MUST output your response in JSON format with the following schema:
             "thought_process": agent_output.get("thought_process", "")
         }
 
-    def _rank_and_explain_places(self, places: List[Dict[str, Any]], taste_profile: Dict[str, Any], user_intent: str) -> List[Dict[str, Any]]:
+    def _rank_and_explain_places(self, places: List[Dict[str, Any]], taste_profile: Dict[str, Any], user_intent: str, destination: Optional[str] = None) -> List[Dict[str, Any]]:
         """
-        Blends user intent with taste profile weights and generates personalized explanations.
+        Blends user intent with taste profile weights and filters/scores places.
         """
+        dest_filter_note = f"The active destination is {destination}. All recommended places MUST be physically located in {destination}." if destination else ""
+
         scoring_prompt = f"""You are a Taste & Intent Scoring Engine.
 Given the user's Taste Profile:
 {json.dumps(taste_profile, indent=2)}
 
 User Intent: "{user_intent}"
+{dest_filter_note}
 
 Places Candidate List:
 {json.dumps(places, indent=2)}
