@@ -1,5 +1,12 @@
-node_modules/
+# .gitignore for Taste Finder
+__pycache__/
+*.py[cod]
+*$py.class
 .env
+*.env
+gcp-key.json
+*-key.json
 .DS_Store
+.venv
+venv/
 *.log
-dist/
