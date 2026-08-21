@@ -5,6 +5,7 @@ const App = {
   selectedPlaces: [],
   currentPage: 0,
   pageSize: 10,
+
   currentResults: [],
   allRankedResults: [],
   minScore: CONFIG.DEFAULT_MIN_SCORE || 5,
@@ -141,6 +142,10 @@ const App = {
   },
 
   loadFromStorage() {
+    try {
+      const saved = JSON.parse(localStorage.getItem("tf_saved_places") || "[]");
+      if (Array.isArray(saved)) this.savedPlaces = new Set(saved.map(String));
+    } catch { /* ignore */ }
     const pk = localStorage.getItem("tf_places_key");
     const lk = localStorage.getItem("tf_llm_key");
     const lm = localStorage.getItem("tf_llm_model");
@@ -1054,6 +1059,9 @@ const App = {
       btn.classList.add("saved");
       btn.innerHTML = "⭐ Saved";
     }
+    try {
+      localStorage.setItem("tf_saved_places", JSON.stringify([...this.savedPlaces]));
+    } catch { /* quota — ignore */ }
   },
 
   escapeHtml(str) {

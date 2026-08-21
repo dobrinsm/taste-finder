@@ -206,9 +206,12 @@ const Engine = {
   parseUserIntent(userMessage) {
     const text = (userMessage || "").trim();
     const cityMatch = text.match(
-      /\b(?:in|near|around|at)\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9.',\-\s]{1,80}?)(?=\s*[?!.]|$)/i
+      /\b(?:in|near|around|at)\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9.',\-]*(?:\s+[A-Z][A-Za-zÀ-ÿ0-9.',\-]*)*)/i
     );
     let city = cityMatch ? cityMatch[1].trim() : "";
+    // Cut trailing filler words: "catania for tonight" -> "catania", keep "new york"
+    const FILLER = /\s+(?:for|with|and|near|this|next|on|at|during|that|which|tonight|today|tomorrow|weekend|please|thanks|asap|now)\b.*$/i;
+    city = city.replace(FILLER, "");
     city = city
       .replace(/\s+(please|thanks|for me)$/i, "")
       .replace(/\s+/g, " ")
@@ -264,9 +267,10 @@ const Engine = {
       /\b(beaches?|trails?|hikes?|hiking|parks?|museums?|galleries?|viewpoints?|lookouts?|waterfalls?|temples?|churches?|ruins?|markets?(?!\s*food)|hotels?|hostels?|airbnb|clubs?|nightlife|concerts?|festivals?)\b/;
     const food =
       /\b(restaurants?|food|eat|dining|dinner|lunch|brunch|breakfast|seafood|fish|sushi|pizza|pasta|ramen|bbq|steak|vegan|vegetarian|cafes?|coffee|baker(?:y|ies)|bars?|pubs?|brewer(?:y|ies)|wine|cocktails?|tapas|cuisine|kitchen|bistros?|trattorias?|osterias?|tavernas?|pescado|pesce)\b/;
-    if (nonFood.test(s) && !food.test(s)) return false;
+    if (nonFood.test(s)) return food.test(s);
+    // Ambiguous/generic terms ("things to do", "night out") must NOT default to food
     if (!searchTerm || searchTerm.length < 2) return false;
-    return food.test(s) || !nonFood.test(s);
+    return food.test(s);
   },
 
   hasVenueType(searchTerm) {

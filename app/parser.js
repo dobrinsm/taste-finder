@@ -88,8 +88,25 @@ const Parser = {
     if (lines.length < 2) return [];
     const headers = lines[0].split(",").map(h => h.trim().toLowerCase());
     const places = [];
+    const parseLine = (line) => {
+      // RFC4180-ish: respect quoted fields containing commas ("London, UK")
+      const vals = [];
+      let cur = "", inQ = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (inQ) {
+          if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+          else if (ch === '"') inQ = false;
+          else cur += ch;
+        } else if (ch === '"') inQ = true;
+        else if (ch === ",") { vals.push(cur); cur = ""; }
+        else cur += ch;
+      }
+      vals.push(cur);
+      return vals.map(v => v.trim());
+    };
     for (let i = 1; i < lines.length; i++) {
-      const vals = lines[i].split(",");
+      const vals = parseLine(lines[i]);
       const row = {};
       headers.forEach((h, idx) => row[h] = (vals[idx] || "").trim());
       places.push({
