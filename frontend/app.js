@@ -357,13 +357,47 @@ function sendPrompt(text) {
 }
 
 // Modal Handling
-btnUploadModal.onclick = () => uploadModal.classList.remove('hidden');
+btnUploadModal.onclick = () => {
+  uploadModal.classList.remove('hidden');
+  uploadStatus.classList.add('hidden');
+  fileInput.value = '';
+};
 function closeModal() { uploadModal.classList.add('hidden'); }
 
-fileInput.addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
+// Handle Drag & Drop on drop-zone
+const dropZone = document.getElementById('dropZone');
+if (dropZone) {
+  ['dragenter', 'dragover'].forEach(eventName => {
+    dropZone.addEventListener(eventName, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropZone.style.borderColor = 'var(--accent-blue)';
+    }, false);
+  });
 
+  ['dragleave', 'drop'].forEach(eventName => {
+    dropZone.addEventListener(eventName, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dropZone.style.borderColor = 'var(--border-color)';
+    }, false);
+  });
+
+  dropZone.addEventListener('drop', (e) => {
+    const dt = e.dataTransfer;
+    const files = dt.files;
+    if (files && files.length > 0) {
+      handleFileUpload(files[0]);
+    }
+  });
+}
+
+fileInput.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (file) handleFileUpload(file);
+});
+
+async function handleFileUpload(file) {
   uploadStatus.classList.remove('hidden');
   const formData = new FormData();
   formData.append('file', file);
@@ -381,13 +415,14 @@ fileInput.addEventListener('change', async (e) => {
       loadUserProfile();
     } else {
       const errData = await res.json().catch(() => ({}));
-      alert(`Upload failed: ${errData.detail || 'Invalid file format'}`);
+      alert(`Upload failed (${res.status}): ${errData.detail || 'Invalid file format'}`);
     }
   } catch (err) {
     uploadStatus.classList.add('hidden');
-    alert('Upload error. Backend may be unreachable.');
+    console.error('Upload network error:', err);
+    alert('Upload failed: Network error connecting to backend.');
   }
-});
+}
 
 btnResetSession.onclick = () => {
   if (confirm('Start a fresh discovery session?')) {

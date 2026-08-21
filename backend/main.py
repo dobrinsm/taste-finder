@@ -185,7 +185,26 @@ async def upload_takeout(user_id: str = "user_default", file: UploadFile = File(
                     places = [data]
 
         if not places:
-            raise HTTPException(status_code=400, detail="No saved places found in the uploaded file.")
+            # Fallback: try to scan any text/json/csv in the zip
+            if filename.endswith(".zip"):
+                with zipfile.ZipFile(io.BytesIO(content), "r") as z:
+                    for name in z.namelist():
+                        if name.endswith(".json"):
+                            try:
+                                d = json.loads(z.read(name).decode("utf-8", errors="ignore"))
+                                if isinstance(d, dict) and "features" in d:
+                                    for f in d["features"]:
+                                        props = f.get("properties", {})
+                                        loc = props.get("location", {})
+                                        places.append({
+                                            "name": loc.get("name") or props.get("Title") or props.get("name") or "Place",
+                                            "address": loc.get("address") or props.get("Address") or "",
+                                            "comment": props.get("Comment") or ""
+                                        })
+                            except Exception:
+                                pass
+            if not places:
+                raise HTTPException(status_code=400, detail="No saved places found in the uploaded file.")
 
         logger.info(f"Extracted {len(places)} places from takeout file ({filename}) for user {user_id}")
         profile = agent.build_taste_profile_from_places(user_id, places)
