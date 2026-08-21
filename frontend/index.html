@@ -186,12 +186,12 @@
           <button class="btn-close" onclick="closeModal()">×</button>
         </div>
         <div class="modal-body">
-          <p>Upload your <code>Saved Places.json</code> export from <strong>Google Takeout</strong>. Gemini will analyze your places, cluster your preferences, and build an adaptive Taste Profile.</p>
+          <p>Upload your <strong>Google Takeout <code>.zip</code></strong> file directly (or uncompressed <code>Saved Places.json</code> / <code>Want to go.csv</code>). Gemini will analyze your places, cluster your preferences, and build an adaptive Taste Profile.</p>
           <div class="drop-zone" id="dropZone">
-            <input type="file" id="fileInput" accept=".json,.geojson" />
+            <input type="file" id="fileInput" accept=".zip,.json,.geojson,.csv" />
             <div class="drop-text">
-              <span class="drop-icon">📁</span>
-              <p>Drag and drop your JSON export here, or <strong>browse files</strong></p>
+              <span class="drop-icon">📦</span>
+              <p>Drag and drop your <strong>Takeout .zip</strong> or JSON/CSV here, or <strong>browse files</strong></p>
             </div>
           </div>
           <div class="upload-status hidden" id="uploadStatus">

@@ -376,15 +376,16 @@ fileInput.addEventListener('change', async (e) => {
     uploadStatus.classList.add('hidden');
     if (res.ok) {
       const data = await res.json();
-      alert(`Successfully analyzed ${data.count} places with Gemini 3.5 on Vertex AI!`);
+      alert(`🎉 Successfully analyzed ${data.count} saved places with Gemini on Vertex AI!\n\nTaste Profile updated: ${data.profile.taste_profile.summary}`);
       closeModal();
       loadUserProfile();
     } else {
-      alert('Upload failed. Please ensure the file is valid JSON.');
+      const errData = await res.json().catch(() => ({}));
+      alert(`Upload failed: ${errData.detail || 'Invalid file format'}`);
     }
   } catch (err) {
     uploadStatus.classList.add('hidden');
-    alert('Upload error.');
+    alert('Upload error. Backend may be unreachable.');
   }
 });
 

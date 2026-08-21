@@ -1,5 +1,8 @@
 import os
+import io
+import csv
 import json
+import zipfile
 import logging
 from typing import Dict, Any, List, Optional
 from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks
@@ -110,32 +113,87 @@ def feedback(req: FeedbackRequest):
 async def upload_takeout(user_id: str = "user_default", file: UploadFile = File(...)):
     try:
         content = await file.read()
-        data = json.loads(content.decode("utf-8"))
-        
-        # Handle various Google Takeout formats (GeoJSON, Features list, or plain list)
         places = []
-        if isinstance(data, list):
-            places = data
-        elif isinstance(data, dict):
-            if "features" in data:
-                for f in data["features"]:
-                    props = f.get("properties", {})
+        filename = (file.filename or "").lower()
+
+        if filename.endswith(".zip"):
+            # Handle direct Google Takeout ZIP archive
+            with zipfile.ZipFile(io.BytesIO(content), "r") as z:
+                for entry_name in z.namelist():
+                    # 1. GeoJSON format: Takeout/Maps (your places)/Saved Places.json
+                    if entry_name.endswith(".json") and ("saved places" in entry_name.lower() or "places" in entry_name.lower()):
+                        try:
+                            raw_json = json.loads(z.read(entry_name).decode("utf-8"))
+                            if isinstance(raw_json, dict) and "features" in raw_json:
+                                for f in raw_json["features"]:
+                                    props = f.get("properties", {})
+                                    loc = props.get("location", {})
+                                    places.append({
+                                        "name": loc.get("name") or props.get("Title") or props.get("name") or "Place",
+                                        "address": loc.get("address") or props.get("Address") or "",
+                                        "comment": props.get("Comment") or props.get("note") or ""
+                                    })
+                        except Exception as je:
+                            logger.warning(f"Error parsing JSON in zip entry {entry_name}: {je}")
+
+                    # 2. CSV format: Takeout/Saved/Want to go.csv or Saved Places.csv
+                    elif entry_name.endswith(".csv") and ("want to go" in entry_name.lower() or "saved" in entry_name.lower() or "starred" in entry_name.lower() or "places" in entry_name.lower()):
+                        try:
+                            csv_text = z.read(entry_name).decode("utf-8", errors="ignore")
+                            reader = csv.DictReader(io.StringIO(csv_text))
+                            for row in reader:
+                                title = row.get("Title") or row.get("name") or row.get("Name")
+                                if title:
+                                    places.append({
+                                        "name": title,
+                                        "address": row.get("Address") or row.get("Note") or "",
+                                        "comment": row.get("Comment") or row.get("Tags") or ""
+                                    })
+                        except Exception as ce:
+                            logger.warning(f"Error parsing CSV in zip entry {entry_name}: {ce}")
+
+        elif filename.endswith(".csv"):
+            csv_text = content.decode("utf-8", errors="ignore")
+            reader = csv.DictReader(io.StringIO(csv_text))
+            for row in reader:
+                title = row.get("Title") or row.get("name") or row.get("Name")
+                if title:
                     places.append({
-                        "name": props.get("Title") or props.get("name") or "Place",
-                        "address": props.get("Address") or "",
-                        "comment": props.get("Comment") or ""
+                        "name": title,
+                        "address": row.get("Address") or row.get("Note") or "",
+                        "comment": row.get("Comment") or row.get("Tags") or ""
                     })
-            elif "saved_places" in data:
-                places = data["saved_places"]
-            else:
-                # Top level object keys or generic
-                places = [data]
-        
-        logger.info(f"Extracted {len(places)} places from takeout file for user {user_id}")
+
+        else:
+            # Handle plain JSON / GeoJSON
+            data = json.loads(content.decode("utf-8"))
+            if isinstance(data, list):
+                places = data
+            elif isinstance(data, dict):
+                if "features" in data:
+                    for f in data["features"]:
+                        props = f.get("properties", {})
+                        loc = props.get("location", {})
+                        places.append({
+                            "name": loc.get("name") or props.get("Title") or props.get("name") or "Place",
+                            "address": loc.get("address") or props.get("Address") or "",
+                            "comment": props.get("Comment") or props.get("note") or ""
+                        })
+                elif "saved_places" in data:
+                    places = data["saved_places"]
+                else:
+                    places = [data]
+
+        if not places:
+            raise HTTPException(status_code=400, detail="No saved places found in the uploaded file.")
+
+        logger.info(f"Extracted {len(places)} places from takeout file ({filename}) for user {user_id}")
         profile = agent.build_taste_profile_from_places(user_id, places)
         return {"status": "success", "count": len(places), "profile": profile}
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Upload processing failed: {e}")
+        logger.error(f"Upload processing failed: {e}", exc_info=True)
         raise HTTPException(status_code=400, detail=f"Failed to process takeout export: {str(e)}")
 
 # Mount frontend static files if available
