@@ -14,6 +14,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy backend & frontend source code
 COPY backend/ ./backend/
+# never bake .env into the image
+RUN rm -f backend/.env
 COPY frontend/ ./frontend/
 
 WORKDIR /app/backend
